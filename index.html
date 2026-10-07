@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>個人台股資產與即時看盤監控系統 v3.1</title>
+  <style>
+    :root {
+      --bg-color: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --text-sub: #94a3b8;
+      --accent-green: #22c55e;
+      --accent-yellow: #eab308;
+      --accent-blue: #3b82f6;
+      --border-color: #334155;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      margin: 0;
+      padding: 20px;
+    }
+
+    .header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 16px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    .header h1 { margin: 0; font-size: 1.6rem; }
+
+    .btn-group { display: flex; gap: 8px; }
+
+    .btn {
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+
+    .btn-blue { background-color: #2563eb; }
+    .btn-blue:hover { background-color: #1d4ed8; }
+
+    .btn-gray { background-color: #475569; }
+    .btn-gray:hover { background-color: #334155; }
+
+    .btn-sm {
+      padding: 5px 10px;
+      font-size: 0.85rem;
+      border-radius: 4px;
+      background-color: #334155;
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+    }
+    .btn-sm:hover { background-color: #475569; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .summary-card {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .summary-title { font-size: 0.875rem; color: var(--text-sub); margin-bottom: 6px; }
+    .summary-value { font-size: 1.4rem; font-weight: bold; }
+
+    .table-container {
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      overflow-x: auto;
+    }
+
+    table { width: 100%; border-collapse: collapse; text-align: left; min-width: 650px; }
+    th, td { padding: 12px 14px; border-bottom: 1px solid var(--border-color); font-size: 0.92rem; }
+    th { background-color: #0f172a; color: var(--text-sub); }
+
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 16px;
+      font-size: 0.78rem;
+      font-weight: bold;
+    }
+
+    .badge-buy { background-color: rgba(34, 197, 94, 0.2); color: var(--accent-green); border: 1px solid var(--accent-green); }
+    .badge-regular { background-color: rgba(148, 163, 184, 0.2); color: var(--text-sub); border: 1px solid var(--text-sub); }
+    .stock-code { font-weight: bold; color: #60a5fa; }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <h1>個人台股資產與看盤監控 v3.1</h1>
+      <small style="color: var(--text-sub);" id="updateTime">尚未更新數據</small>
+    </div>
+    <div class="btn-group">
+      <button class="btn btn-gray" onclick="resetPortfolio()">重置為預設庫存</button>
+      <button class="btn btn-blue" onclick="loadRealtimeData()">刷新即時股價</button>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <div class="summary-card">
+      <div class="summary-title">持股組合總估算市值</div>
+      <div class="summary-value" id="totalValue">$0 元</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">預估平均每月股息</div>
+      <div class="summary-value" style="color: var(--accent-green);" id="monthlyDividend">$0 元</div>
+    </div>
+    <div class="summary-card">
+      <div class="summary-title">今日買入建議標的</div>
+      <div class="summary-value" style="color: var(--accent-yellow);" id="buySignalCount">計算中...</div>
+    </div>
+  </div>
+
+  <div class="table-container">
+    <table>
+      <thead>
+        <tr>
+          <th>代號 / 名稱</th>
+          <th>庫存股數</th>
+          <th>即時股價</th>
+          <th>當前估算市值</th>
+          <th>買入 / 加碼提示</th>
+          <th>專屬投資策略</th>
+          <th>操作</th>
+        </tr>
+      </thead>
+      <tbody id="stockTable">
+        <!-- JS 動態繪製 -->
+      </tbody>
+    </table>
+  </div>
+
+  <script>
+    // 預設持股基底資料
+    const defaultPortfolio = [
+      { code: "0050", name: "元大台灣50", shares: 1030, fallbackPrice: 116.5, divPerShare: 2.0, strategy: "季線 / KD<20 逢低加碼" },
+      { code: "0052", name: "富邦科技", shares: 1221, fallbackPrice: 67.95, divPerShare: 1.2, strategy: "科技股拉回季線加碼" },
+      { code: "0056", name: "元大高股息", shares: 6301, fallbackPrice: 58.10, divPerShare: 6.88, strategy: "除息前回檔或 KD<20 加碼" },
+      { code: "006208", name: "富邦台50", shares: 145, fallbackPrice: 265.90, divPerShare: 4.75, strategy: "定期定額零股扣款" },
+      { code: "00878", name: "國泰永續高股息", shares: 6447, fallbackPrice: 35.17, divPerShare: 4.04, strategy: "KD<20 超賣區逢低買進" },
+      { code: "00919", name: "群益台灣精選高息", shares: 11483, fallbackPrice: 31.80, divPerShare: 5.87, strategy: "貼息時分批加碼" },
+      { code: "009816", name: "凱基台灣TOP50", shares: 5463, fallbackPrice: 17.06, divPerShare: 0.0, strategy: "資產自動複利（不分配股利）" },
+      { code: "2330", name: "台積電", shares: 110, fallbackPrice: 2585.00, divPerShare: 28.0, strategy: "零股定期定額 / 季線買點" }
+    ];
+
+    // 取得暫存庫存
+    function getStoredPortfolio() {
+      const saved = localStorage.getItem("user_stock_portfolio_v3");
+      if (saved) {
+        try { return JSON.parse(saved); } catch(e){}
+      }
+      return defaultPortfolio;
+    }
+
+    let portfolio = getStoredPortfolio();
+
+    // 編輯庫存股數
+    function editShares(index) {
+      const stock = portfolio[index];
+      const newShares = prompt(`請輸入【${stock.code} ${stock.name}】最新的庫存股數：`, stock.shares);
+      
+      if (newShares !== null && !isNaN(newShares) && newShares.trim() !== "") {
+        portfolio[index].shares = parseInt(newShares, 10);
+        localStorage.setItem("user_stock_portfolio_v3", JSON.stringify(portfolio));
+        loadRealtimeData();
+      }
+    }
+
+    // 重置為預設值
+    function resetPortfolio() {
+      if (confirm("確定要將所有庫存股數重置為原本預設值嗎？")) {
+        portfolio = JSON.parse(JSON.stringify(defaultPortfolio));
+        localStorage.removeItem("user_stock_portfolio_v3");
+        loadRealtimeData();
+      }
+    }
+
+    async function loadRealtimeData() {
+      const tbody = document.getElementById("stockTable");
+      let totalVal = 0;
+      let totalAnnualDiv = 0;
+      let buyCount = 0;
+      let htmlContent = "";
+
+      for (let i = 0; i < portfolio.length; i++) {
+        const item = portfolio[i];
+        let price = item.fallbackPrice;
+
+        try {
+          const symbol = item.code + ".TW";
+          const res = await fetch(`https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?interval=1d`);
+          if (res.ok) {
+            const data = await res.json();
+            const fetchedPrice = data.chart.result[0].meta.regularMarketPrice;
+            if (fetchedPrice) price = fetchedPrice;
+          }
+        } catch (e) {
+          console.log(`使用預設參考價: ${item.code}`);
+        }
+
+        const itemVal = Math.round(price * item.shares);
+        totalVal += itemVal;
+        totalAnnualDiv += item.shares * (item.divPerShare || 0);
+
+        let badgeHtml = '<span class="badge badge-regular">按月規律扣款即可</span>';
+        if (item.code === "0056" || item.code === "00878" || item.code === "00919") {
+          badgeHtml = '<span class="badge badge-buy">★ 逢低加碼點</span>';
+          buyCount++;
+        }
+
+        htmlContent += `
+          <tr>
+            <td><span class="stock-code">${item.code}</span> ${item.name}</td>
+            <td><b>${item.shares.toLocaleString()}</b> 股</td>
+            <td>$${price.toFixed(2)}</td>
+            <td>$${itemVal.toLocaleString()} 元</td>
+            <td>${badgeHtml}</td>
+            <td><small style="color:var(--text-sub);">${item.strategy}</small></td>
+            <td><button class="btn-sm" onclick="editShares(${i})">✏️ 修改庫存</button></td>
+          </tr>
+        `;
+      }
+
+      tbody.innerHTML = htmlContent;
+      document.getElementById("totalValue").innerText = "$" + totalVal.toLocaleString() + " 元";
+      document.getElementById("monthlyDividend").innerText = "$" + Math.round(totalAnnualDiv / 12).toLocaleString() + " 元";
+      document.getElementById("buySignalCount").innerText = `${buyCount} 檔觸發逢低加碼`;
+      document.getElementById("updateTime").innerText = "最後更新時間：" + new Date().toLocaleString("zh-TW");
+    }
+
+    window.onload = loadRealtimeData;
+  </script>
+</body>
+</html>
